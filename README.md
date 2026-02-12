@@ -1,189 +1,251 @@
-# Important Dates
+# MLSys 2026 DAG Optimization Challenge - Baseline Solution
 
-| Date | Event |
-| :---- | :---- |
-| 01/22/2026 | Public launch • Call for participation • Open registration • Release starter kit |
-| 02/09/2026 | Release 5 benchmark sets |
-| 04/24/2026 | Track A and Track B submission deadline (11:59 PM PT) |
-| 05/01/2026 | Writeup deadline (11:59 PM PT) |
-| 05/11/2026 | Notify winners |
-| 05/17/2026 \- 05/22/2026 | MLSys 2026 \- award ceremony |
+## Problem Overview
 
-# Problem Description
+The MLSys 2026 DAG Optimization Challenge tackles a fundamental problem in modern AI accelerators: **executing large computation graphs on hardware with limited fast memory**.
 
-Please see [PROBLEM.md](https://github.com/yarongmu-google/MLSys/blob/main/PROBLEM.md).
+**The Challenge:**
 
-# Submission Categories & Format
+- You have a DAG (Directed Acyclic Graph) of tensor operations (MatMul, Pointwise, etc.)
+- Tensors are **orders of magnitude larger** than your fast memory capacity
+- You must **tile** the computation (process in small chunks)
+- Moving data between slow ↔ fast memory is **expensive** (limited bandwidth)
+- **Goal:** Minimize total execution latency while respecting memory constraints
 
-We are hosting two distinct tracks to celebrate both systems engineering and AI reasoning. Teams may participate in one or both tracks.
+**Example:** A 512×512 tensor has 262,144 elements, but your fast memory only holds 60,000. You must break the computation into 128×128 tiles (16,384 elements each) and orchestrate data movement intelligently.
 
-## Submission Mechanism
+This is analogous to real-world problems in GPUs, TPUs, and AI accelerators where on-chip SRAM is scarce but essential for performance.
 
-Submissions will be accepted via the [Official Submission Form](https://docs.google.com/forms/d/e/1FAIpQLSd9LLsW5dB9jQJLHg6QTebH6xx4rrpi0PNTQ_yPjYMAInA6fA/viewform?usp=publish-editor). You will be asked to provide your team details and upload your solution as a single `.zip` archive.
+---
 
-* Deadline: April 24, 2026, 11:59 PM PT.  
-* File Naming: Please name your archive using the format: `TeamName_Track_SubmissionNumber.zip` (e.g., DeepRunners\_TrackA\_1.zip).  
-* Form Settings Note: when uploading, ensure your file is a standard `.zip` archive.
+## My Baseline Solution
 
-## Track A: Systems Engineering (Human-Written)
+### Strategy
 
-This track focuses on the efficiency and robustness of the scheduling algorithm itself.
+This baseline implements the **simplest valid scheduling approach**:
 
-* Deliverable: A compiled binary executable named `mlsys`.  
-* Interface: your binary must accept two command-line arguments:
+1. **Topological Sort:** Determine a valid execution order respecting dependencies (no op runs before its inputs are ready)
+2. **One Op Per Subgraph:** Execute each operation independently (no fusion)
+3. **Maximal Granularity:** For each op, find the largest tile size that fits in fast memory
+4. **No Retention:** Evict all outputs to slow memory after each op (no inter-subgraph data reuse)
+5. **Raster Order:** Process tiles in default row-major order (no traversal optimization)
 
-```shell
-$ ./mlsys <path_to_input.json> <path_to_output.json>
+### How It Works
+
+**For benchmark `mlsys-2026-1.json` (5 ops, 512×512 tensors, 60K fast memory):**
+
+1. **Dependency Analysis:**
+   - Op0 (MatMul) has no dependencies → runs first
+   - Op1 (Pointwise) needs Op0's output → runs second
+   - Op2, Op3, Op4 follow in sequence (it's a chain)
+
+2. **Granularity Selection:**
+   - Try native granularity [128×128] with full reduction depth
+   - Check if working set (input tiles + output tile) ≤ 60,000
+   - If too big, halve dimensions until it fits
+   - Result: MatMuls use [128, 128, 128], Pointwise use [128, 128, 1]
+
+3. **Execution:**
+   - Each 512×512 tensor requires 4×4 = 16 spatial tiles
+   - MatMuls need 4 k-steps per tile (total: 64 steps)
+   - Pointwise need 1 step per tile (total: 16 steps)
+   - Each step: load inputs → compute → store outputs
+   - Latency = max(compute_cost, memory_transfer_cost)
+
+4. **Result:**
+   - Total latency: **471,500.8** time units
+   - Valid solution (no OOM, correct dependencies)
+   - Highly suboptimal (every intermediate spills to slow memory)
+
+### Why It's Slow
+
+- **No fusion:** Tensors 4, 5, 6, 7 each make a full round-trip through slow memory
+- **No retention:** Tensor0 is loaded twice (used by Op0 and Op4)
+- **No traversal optimization:** Tiles don't reuse data between steps
+
+**Potential improvements:**
+
+- Fusion: Combine all 5 ops → intermediates become ephemeral (free)
+- Retention: Keep Tensor0 resident → save one reload
+- Snake traversal: Reuse LHS/RHS strips in MatMul tiles → reduce bandwidth
+
+---
+
+## Code Structure
+
+```
+src/
+├── main.go              # Entry point (parses args, runs solver, writes output)
+├── types.go             # Data structures (Problem, Solution, Tensor, Op, Subgraph)
+├── io.go                # JSON parsing and writing
+├── solver.go            # Baseline solver (topological sort + granularity selection)
+├── evaluate.go          # Cost model (working set calculation, latency computation)
+├── util.go              # Helper functions (CeilDiv, Max, etc.)
+├── visualize.go         # Graphviz DOT file generation (optional)
+└── visualize_example.go # Visualization entry point (optional)
 ```
 
-  * Note: The timeout is enforced by the organizer's harness, not passed as an argument. Your binary simply needs to write the solution file before it gets killed.  
-* Zip Contents:  
-  * `mlsys`: The statically linked binary (must run on Ubuntu 22.04 LTS).  
-  * `source/`: Complete source code (C++/Rust/etc.) for verification.  
-  * `writeup.pdf`: a 2-page summary of your approach.
+---
 
-## Track B: Agent Reasoning (AI-Generated)
+## How to Run
 
-This track benchmarks the ability of Gemini-powered Agents to solve scheduling puzzles. To ensure fair comparison, your agent must exclusively utilize the Google Gemini API for its reasoning and generation.
+### Prerequisites
 
-* Deliverable: a Python script named `agent.py`.  
-* Interface: Your script will be executed as follows:
+- **Go 1.21+** ([install](https://go.dev/doc/install))
+- **Graphviz** (optional, for visualization): `brew install graphviz`
 
-```shell
-$ python3 agent.py <path_to_input.json> <path_to_output.json>
+### Build
+
+```bash
+cd src
+go build -o mlsys
 ```
 
-* Environment:  
-  1. The organizers will inject the `GOOGLE_API_KEY` environment variable.  
-  2. Network access is strictly blocked except to the Gemini API endpoint (`generativelanguage.googleapis.com`). Calls to any other LLM provider (OpenAI, Anthropic, etc.) will fail.  
-  3. **Timeout:** Your agent script is strictly limited to **10 minutes** of execution time per benchmark (including all API calls and local processing).
-* Zip Contents:  
-  1. `agent.py`: The entry point script.  
-  2. `requirements.txt`: A list of Python dependencies (e.g., google-generativeai, numpy).  
-  3. `prompts/`: A folder containing your system prompts, few-shot examples, or agent definitions (required for reproducibility).  
-  4. `writeup.pdf`: A short (1-2 page) summary of your prompting strategy and agent architecture.
+### Run Solver
 
-Both tracks share the same set of 25 benchmark problems.
+```bash
+./mlsys <input.json> <output.json>
 
-# Resources and Compute
+# Example:
+./mlsys ../benchmarks/mlsys-2026-1.json output.json
+```
 
-To ensure fair play and broad accessibility, this contest is designed to be Zero Cost for all participants.
+**Output:**
 
-For Track A (Systems):
+```
+Problem: 9 tensors, 5 ops, capacity=60000, bandwidth=20, native=[128,128]
+Verified total latency: 471500.8
+Subgraph 0: ops=[0] gran=[128,128,128] retain=[] latency=135321.6
+Subgraph 1: ops=[1] gran=[128,128,1] retain=[] latency=26214.4
+...
+Solution written to output.json
+```
 
-* Standard Hardware: since the problem is a specialized graph scheduling puzzle (JSON-to-JSON), no special hardware is required for the solution itself. A standard laptop or free Colab CPU instance is sufficient to run the `mlsys` binary and generate schedules.
+### Visualize (Optional)
 
-For Track B (Agents):
+```bash
+./mlsys visualize ../benchmarks/mlsys-2026-1.json
+```
 
-* Free Intelligence: participants are encouraged to use Gemini 1.5 Flash via Google AI Studio. The free tier provides approximately 1,500 requests per day, which is sufficient for developing and testing robust agentic schedulers.
+**Generates:**
 
-# Getting Started
+- `dag.png` — Computation graph (tensors + ops + dependencies)
+- `solution.png` — Scheduled solution (subgraphs as clusters)
+- `timeline.png` — Execution timeline (when each subgraph runs)
 
-To help you get started, we have released a [separate GitHub repository](https://github.com/yarongmu-google/MLSys) containing several C++ files that define the basic problem and solution classes, along with various utilities. You are under no obligation to use these source codes.
+---
 
-| File | Description |
-| :---- | :---- |
-| [mlsys.h](https://github.com/yarongmu-google/MLSys/blob/main/mlsys.h) | Defines the Problem and Solution classes, along with methods for file I/O and solution evaluation. |
+## Benchmarks
 
-Please don't hesitate reaching out to the Contest Organizers if you encounter any trouble getting these materials to work.
+The challenge provides 5 public benchmarks for testing:
 
-# Benchmarks
+| File               | Ops | Tensors | Timeout | Difficulty        |
+| ------------------ | --- | ------- | ------- | ----------------- |
+| mlsys-2026-1.json  | 5   | 9       | 2s      | Small chain       |
+| mlsys-2026-5.json  | 19  | 29      | 5s      | Branching DAG     |
+| mlsys-2026-9.json  | 32  | 48      | 15s     | Repeated blocks   |
+| mlsys-2026-13.json | 63  | 99      | 30s     | Parallel branches |
+| mlsys-2026-17.json | 103 | 159     | 60s     | Transformer-like  |
 
-The contest will involve twenty-five industrial benchmarks; [five have been released](https://github.com/google/iopddl/tree/main/benchmarks) in advance to contest participants (for testing purposes), and the remaining twenty will be withheld for evaluation:
+All benchmarks are in `../benchmarks/`
 
-**Note on Timeouts:** The timeouts listed below apply strictly to **Track A (Systems)**. For **Track B (Agents)**, a fixed timeout of **10 minutes** is applied to every benchmark to accommodate LLM inference latency.
+---
 
-| Benchmark Name | \# Nodes | \# Edges | Timeout | Will be released to participants? |
-| :---- | :---- | :---- | :---- | :---- |
-| [mlsys-2026-1](https://github.com/yarongmu-google/MLSys/blob/main/benchmarks/mlsys-2026-1.json) | 5 | 9 | 2 second(s) | Yes |
-| mlsys-2026-2 | TBD | TBD | 2 second(s) |  |
-| mlsys-2026-3 | TBD | TBD | 2 second(s) |  |
-| mlsys-2026-4 | TBD | TBD | 2 second(s) |  |
-| [mlsys-2026-5](https://github.com/yarongmu-google/MLSys/blob/main/benchmarks/mlsys-2026-5.json) | 19 | 34 | 5 second(s) | Yes |
-| mlsys-2026-6 | TBD | TBD | 5 second(s) |  |
-| mlsys-2026-7 | TBD | TBD | 5 second(s) |  |
-| mlsys-2026-8 | TBD | TBD | 5 second(s) |  |
-| [mlsys-2026-9](https://github.com/yarongmu-google/MLSys/blob/main/benchmarks/mlsys-2026-9.json) | 32 | 56 | 15 second(s) | Yes |
-| mlsys-2026-10 | TBD | TBD | 15 seconds(s) |  |
-| mlsys-2026-11 | TBD | TBD | 15 seconds(s) |  |
-| mlsys-2026-12 | TBD | TBD | 15 seconds(s) |  |
-| [mlsys-2026-13](https://github.com/yarongmu-google/MLSys/blob/main/benchmarks/mlsys-2026-13.json) | 63 | 126 | 30 seconds(s) | Yes |
-| mlsys-2026-14 | TBD | TBD | 30 seconds(s) |  |
-| mlsys-2026-15 | TBD | TBD | 30 seconds(s) |  |
-| mlsys-2026-16 | TBD | TBD | 30 seconds(s) |  |
-| [mlsys-2026-17](https://github.com/yarongmu-google/MLSys/blob/main/benchmarks/mlsys-2026-17.json) | 103 | 198 | 60 seconds(s) | Yes |
-| mlsys-2026-18 | TBD | TBD | 60 seconds(s) |  |
-| mlsys-2026-19 | TBD | TBD | 60 seconds(s) |  |
-| mlsys-2026-20 | TBD | TBD | 60 seconds(s) |  |
-| mlsys-2026-21 | TBD | TBD | 120 seconds(s) |  |
-| mlsys-2026-22 | TBD | TBD | 120 seconds(s) |  |
-| mlsys-2026-23 | TBD | TBD | 120 seconds(s) |  |
-| mlsys-2026-24 | TBD | TBD | 120 seconds(s) |  |
+## Implementation Details
 
-All benchmarks will become publicly available after the contest is complete.
+### Topological Sort (Kahn's Algorithm)
 
-# Evaluation and Scoring
+```go
+// Build dependency graph: which op produces which tensor
+producerOf := map[tensor_id → op_id]
 
-The contest organizers will execute each team's binary across the twenty withheld benchmarks on a dedicated 8-core Linux workstation with 32GB of RAM. Rankings will be established by calculating the total number of points per team, where points are derived by normalizing cost values against the best submitted solution.
+// For each op, count dependencies
+for each op:
+    for each input tensor:
+        if tensor has a producer:
+            add edge: producer → this_op
+            increment this_op's in-degree
 
-For example, assume the following raw costs:
+// BFS: process ops with in-degree 0
+queue = [ops with in-degree 0]
+while queue not empty:
+    op = queue.pop()
+    add op to order
+    for each dependent of op:
+        decrement dependent's in-degree
+        if in-degree == 0:
+            queue.push(dependent)
+```
 
-| Team | Benchmark X | Benchmark Y | Benchmark Z |
-| :---- | :---- | :---- | :---- |
-| Team A | cost: 100 | cost: 500 | cost: 800 |
-| Team B | cost: 300 | cost: 200 | cost: 900 |
-| Team C | cost: 600 | cost: 700 | cost: 400 |
-| Min. Team Cost | cost: 100 | cost: 200 | cost: 400 |
+### Granularity Selection
 
-The points that a team earns for a particular benchmark is then equal to min\_team\_cost / team\_cost
+```go
+// Start with native granularity
+w, h, k = native_w, native_h, full_K
 
-| Team | Benchmark X | Benchmark Y | Benchmark Z | Total Points | Ranking |
-| :---- | :---- | :---- | :---- | :---- | :---- |
-| Team A | 1.000 points | 0.400 points | 0.500 points | 1.900 points | First Place 🥇 |
-| Team B | 0.333 points | 1.000 points | 0.444 points | 1.778 points | Second Place 🥈 |
-| Team C | 0.167 points | 0.286 points | 1.000 points | 1.452 points | Third Place 🥉 |
+// Try smaller granularities until working set fits
+for w = native_w down to 1 (halving):
+    for h = native_h down to 1 (halving):
+        for k = full_K down to 1 (halving):
+            ws = compute_working_set(w, h, k)
+            if ws <= capacity:
+                return [w, h, k]
+```
 
-# Prizes and Awards
+### Latency Computation (Roofline Model)
 
-Thanks to our sponsor Google, we are offering a $50,000 Total Prize Pool, split evenly between the two tracks to encourage diversity in approaches.
+```go
+for each spatial_tile:
+    for each k_step:
+        // Memory transfer
+        bytes_loaded = sum of input tile sizes (from slow memory)
+        bytes_stored = output tile size (to slow memory, if last k-step)
+        mem_time = (bytes_loaded + bytes_stored) / bandwidth
 
-| Track | Gold (1st) | Silver (2nd) | Bronze (3rd) | Honorable Mentions |
-| :---- | :---- | :---- | :---- | :---- |
-| Track A: Systems | $10,000 | $7,500 | $5,000 | $2,500 (shared) |
-| Track B: Agents | $10,000 | $7,500 | $5,000 | $2,500 (shared) |
+        // Compute
+        comp_time = sum of base_costs for ops in subgraph
 
-Award Rules:
+        // Bottleneck
+        step_latency = max(comp_time, mem_time)
+        total_latency += step_latency
+```
 
-1. Open Source: To be eligible for cash prizes, winning teams must open-source their solution (code or agent prompts) under an MIT/Apache 2.0 license within 2 months of the award.  
-2. One Prize Per Team: A single team can compete in both tracks but may only claim the highest monetary prize earned across tracks (the unclaimed prize passes to the next rank).  
-3. Agent Reproducibility: For Track B, the organizers will re-run your agent 3 times. The median score will be used to mitigate non-deterministic LLM outputs.
+---
 
-# Presentations
+## Performance
 
-Teams who win the gold awards will be invited to present a \~10 minute informal overview of their approach at a special session held during the conference days. Presentations will be linked from the main MLSys competition website.
+**Baseline results** on the 5 public benchmarks:
 
-# Contest Eligibility
+| Benchmark     | Latency   | Status  |
+| ------------- | --------- | ------- |
+| mlsys-2026-1  | 471,500.8 | ✓ Valid |
+| mlsys-2026-5  | TBD       | ✓ Valid |
+| mlsys-2026-9  | TBD       | ✓ Valid |
+| mlsys-2026-13 | TBD       | ✓ Valid |
+| mlsys-2026-17 | TBD       | ✓ Valid |
 
-All are welcome to participate in the contest \-- including teams from academia, industry, and elsewhere \-- with the exception of the Contest Organizers and employees of the Contest Sponsor. Individuals are prohibited from participating in multiple teams. In order to be eligible for prizes, contestants must commit to releasing an open-source version of their implementation 1 month after winning (allowing teams sufficient time to write & submit papers detailing their approach).
+_(Run benchmarks to populate)_
 
-# Frequently Asked Questions
+---
 
-To raise a question, please create an issue in this repository, or feel free to reach out to the contest organizers directly.
+## Next Steps
 
-# Reference Materials
+**Optimizations to implement:**
 
-[ASPLOS 2025 contest track](https://github.com/asplos-contest/2025/blob/main/IOPDDL.md), which is a prequel of this problem.   
-[Tensor processing primitives: a programming abstraction for efficiency and portability in deep learning workloads (2021)](https://dl.acm.org/doi/pdf/10.1145/3458817.3476206)  
-[Apollo: Automatic Partition-based Operator Fusion through Layer by Layer Optimization (2022)](https://proceedings.mlsys.org/paper_files/paper/2022/file/e175e8a86d28d935be4f43719651f86d-Paper.pdf)  
-[Optimus: An Operator Fusion Framework for Deep Neural Networks (2022)](https://dl.acm.org/doi/pdf/10.1145/3520142)  
-[FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness (2022](https://openreview.net/pdf?id=H4DqfPSibmx)  
-[Operator Fusion in XLA: Analysis and Evaluation (2023)](https://arxiv.org/pdf/2301.13062)  
-[How Much Can We Gain From Tensor Kernel Fusion on GPUs? (2024)](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10551817)
+1. **Chain Fusion:** Detect linear chains (A→B→C) and fuse them into single subgraphs
+2. **Retention Analysis:** Keep frequently-reused tensors in fast memory across subgraphs
+3. **Snake Traversal:** For MatMul, process tiles in zig-zag order to reuse LHS/RHS strips
+4. **Recomputation:** For diamond patterns, compare cost of spilling vs. recomputing cheap ops
+5. **Global Search:** Beam search or simulated annealing to explore fusion/retention combinations
 
-# Contest Organizers
+## License
 
-Yarong Mu ([ymu@google.com](mailto:ymu@google.com)) & Weiren Yu ([weirenyu@google.com](mailto:weirenyu@google.com))
+Apache 2.0 (following the competition requirements)
 
-# Contest Sponsor
+---
 
-<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/500px-Google_2015_logo.svg.png" width="120">
+## Author
+
+Built with Go for the MLSys 2026 DAG Optimization Challenge.
+
+_Why Go?_ Clean concurrency primitives, fast compilation, static typing, and a joy to write. Perfect for systems challenges like this.

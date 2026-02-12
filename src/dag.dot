@@ -1,0 +1,37 @@
+digraph DAG {
+  rankdir=TB;
+  node [shape=box, style=rounded, fontname="Arial"];
+  edge [fontname="Arial", fontsize=10];
+
+  T0 [label="Tensor[0]\n512x512\n(input)", fillcolor="lightgreen", style="rounded,filled"];
+  T1 [label="Tensor[1]\n512x512\n(input)", fillcolor="lightgreen", style="rounded,filled"];
+  T2 [label="Tensor[2]\n512x512\n(input)", fillcolor="lightgreen", style="rounded,filled"];
+  T3 [label="Tensor[3]\n512x512\n(input)", fillcolor="lightgreen", style="rounded,filled"];
+  T4 [label="Tensor[4]\n512x512", fillcolor="white", style="rounded,filled"];
+  T5 [label="Tensor[5]\n512x512", fillcolor="white", style="rounded,filled"];
+  T6 [label="Tensor[6]\n512x512", fillcolor="white", style="rounded,filled"];
+  T7 [label="Tensor[7]\n512x512", fillcolor="white", style="rounded,filled"];
+  T8 [label="Tensor[8]\n512x512\n(output)", fillcolor="lightblue", style="rounded,filled"];
+
+  Op0 [label="Op[0]\nMatMul\ncost=2000", shape=box, fillcolor="lightyellow", style="filled"];
+  Op1 [label="Op[1]\nPointwise\ncost=500", shape=box, fillcolor="lightyellow", style="filled"];
+  Op2 [label="Op[2]\nMatMul\ncost=2000", shape=box, fillcolor="lightyellow", style="filled"];
+  Op3 [label="Op[3]\nMatMul\ncost=2000", shape=box, fillcolor="lightyellow", style="filled"];
+  Op4 [label="Op[4]\nPointwise\ncost=500", shape=box, fillcolor="lightyellow", style="filled"];
+
+  T0 -> Op0 [label="LHS"];
+  T1 -> Op0 [label="RHS"];
+  T4 -> Op1 ;
+  T5 -> Op2 [label="LHS"];
+  T2 -> Op2 [label="RHS"];
+  T6 -> Op3 [label="LHS"];
+  T3 -> Op3 [label="RHS"];
+  T7 -> Op4 ;
+  T0 -> Op4 ;
+
+  Op0 -> T4;
+  Op1 -> T5;
+  Op2 -> T6;
+  Op3 -> T7;
+  Op4 -> T8;
+}

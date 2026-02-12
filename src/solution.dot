@@ -1,0 +1,75 @@
+digraph Solution {
+  rankdir=TB;
+  node [fontname="Arial"];
+  edge [fontname="Arial", fontsize=10];
+
+  T0 [label="T[0]\n512x512", shape=ellipse, fillcolor="lightgreen", style="filled"];
+  T1 [label="T[1]\n512x512", shape=ellipse, fillcolor="lightgreen", style="filled"];
+  T2 [label="T[2]\n512x512", shape=ellipse, fillcolor="lightgreen", style="filled"];
+  T3 [label="T[3]\n512x512", shape=ellipse, fillcolor="lightgreen", style="filled"];
+  T4 [label="T[4]\n512x512", shape=ellipse, fillcolor="white", style="filled"];
+  T5 [label="T[5]\n512x512", shape=ellipse, fillcolor="white", style="filled"];
+  T6 [label="T[6]\n512x512", shape=ellipse, fillcolor="white", style="filled"];
+  T7 [label="T[7]\n512x512", shape=ellipse, fillcolor="white", style="filled"];
+  T8 [label="T[8]\n512x512", shape=ellipse, fillcolor="lightblue", style="filled"];
+
+  subgraph cluster_0 {
+    label="Subgraph 0\nGran=[128,128,128]\nLatency=135321.6";
+    style=filled;
+    color=lightgrey;
+    node [style=filled, fillcolor=lightyellow];
+
+    Op0 [label="Op[0]\nMatMul\ncost=2000"];
+  }
+
+  subgraph cluster_1 {
+    label="Subgraph 1\nGran=[128,128,1]\nLatency=26214.4";
+    style=filled;
+    color=lightgrey;
+    node [style=filled, fillcolor=lightyellow];
+
+    Op1 [label="Op[1]\nPointwise\ncost=500"];
+  }
+
+  subgraph cluster_2 {
+    label="Subgraph 2\nGran=[128,128,128]\nLatency=135321.6";
+    style=filled;
+    color=lightgrey;
+    node [style=filled, fillcolor=lightyellow];
+
+    Op2 [label="Op[2]\nMatMul\ncost=2000"];
+  }
+
+  subgraph cluster_3 {
+    label="Subgraph 3\nGran=[128,128,128]\nLatency=135321.6";
+    style=filled;
+    color=lightgrey;
+    node [style=filled, fillcolor=lightyellow];
+
+    Op3 [label="Op[3]\nMatMul\ncost=2000"];
+  }
+
+  subgraph cluster_4 {
+    label="Subgraph 4\nGran=[128,128,1]\nLatency=39321.6";
+    style=filled;
+    color=lightgrey;
+    node [style=filled, fillcolor=lightyellow];
+
+    Op4 [label="Op[4]\nPointwise\ncost=500"];
+  }
+
+  T0 -> Op0 [label="LHS"];
+  T1 -> Op0 [label="RHS"];
+  Op0 -> T4;
+  T4 -> Op1 ;
+  Op1 -> T5;
+  T5 -> Op2 [label="LHS"];
+  T2 -> Op2 [label="RHS"];
+  Op2 -> T6;
+  T6 -> Op3 [label="LHS"];
+  T3 -> Op3 [label="RHS"];
+  Op3 -> T7;
+  T7 -> Op4 ;
+  T0 -> Op4 ;
+  Op4 -> T8;
+}

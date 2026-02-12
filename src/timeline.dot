@@ -1,0 +1,17 @@
+digraph Timeline {
+  rankdir=LR;
+  node [shape=box, fontname="Arial"];
+
+  SG0 [label="SG0\nOps=[0]\nTime: 0.0 - 135321.6\n(135321.6 units)", fillcolor="lightblue", style="filled"];
+  SG1 [label="SG1\nOps=[1]\nTime: 135321.6 - 161536.0\n(26214.4 units)", fillcolor="lightblue", style="filled"];
+  SG0 -> SG1 [label=""];
+  SG2 [label="SG2\nOps=[2]\nTime: 161536.0 - 296857.6\n(135321.6 units)", fillcolor="lightblue", style="filled"];
+  SG1 -> SG2 [label=""];
+  SG3 [label="SG3\nOps=[3]\nTime: 296857.6 - 432179.2\n(135321.6 units)", fillcolor="lightblue", style="filled"];
+  SG2 -> SG3 [label=""];
+  SG4 [label="SG4\nOps=[4]\nTime: 432179.2 - 471500.8\n(39321.6 units)", fillcolor="lightblue", style="filled"];
+  SG3 -> SG4 [label=""];
+
+  Total [label="Total Latency:\n471500.8", shape=ellipse, fillcolor="lightgreen", style="filled"];
+  SG4 -> Total;
+}
