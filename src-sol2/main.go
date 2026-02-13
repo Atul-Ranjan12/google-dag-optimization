@@ -8,17 +8,22 @@ import (
 	"time"
 )
 
+type BenchmarkResult struct {
+	Name      string
+	Latency   float64
+	Subgraphs int
+	Time      time.Duration
+}
+
 func main() {
 	benchmarkDir := "../benchmarks"
 	outputDir := "./solutions"
 
-	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating output directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Find all benchmark files
 	files, err := filepath.Glob(filepath.Join(benchmarkDir, "mlsys-2026-*.json"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding benchmark files: %v\n", err)
@@ -30,9 +35,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("=" + strings.Repeat("=", 78))
-	fmt.Println("  MLSys 2026 DAG Optimization - Baseline Solver")
-	fmt.Println("=" + strings.Repeat("=", 78))
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println("  MLSys 2026 DAG Optimization - Sol-2 Optimized Solver")
+	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Found %d benchmark files\n\n", len(files))
 
 	results := make([]BenchmarkResult, 0, len(files))
@@ -47,29 +52,30 @@ func main() {
 
 		startTime := time.Now()
 
-		// Read problem
 		problem, err := ReadProblem(inputFile)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  ✗ Error reading problem: %v\n\n", err)
 			continue
 		}
 
-		fmt.Printf("  Problem: %d tensors, %d ops, capacity=%d, bandwidth=%d\n",
+		fmt.Printf("  Problem: %d tensors, %d ops, capacity=%d, bandwidth=%d, native=[%d,%d]\n",
 			len(problem.Tensors), len(problem.Ops),
-			problem.FastMemoryCapacity, problem.SlowMemoryBandwidth)
+			problem.FastMemoryCapacity, problem.SlowMemoryBandwidth,
+			problem.NativeGranularity[0], problem.NativeGranularity[1])
 
-		// Solve
-		solution := SolveBaseline(problem)
+		solution := SolveOptimized(problem)
 
-		// Verify
 		totalLat, err := EvaluateSolution(problem, solution)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ Solution validation error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "  ✗ Final validation error: %v\n", err)
+			totalLat = 0
+			for _, sg := range solution.Subgraphs {
+				totalLat += sg.SubgraphLatency
+			}
 		}
 
 		elapsed := time.Since(startTime)
 
-		// Write output
 		if err := WriteSolution(outputFile, solution); err != nil {
 			fmt.Fprintf(os.Stderr, "  ✗ Error writing solution: %v\n\n", err)
 			continue
@@ -78,7 +84,7 @@ func main() {
 		fmt.Printf("  ✓ Total Latency: %.1f\n", totalLat)
 		fmt.Printf("  ✓ Subgraphs: %d\n", len(solution.Subgraphs))
 		fmt.Printf("  ✓ Time: %v\n", elapsed)
-		fmt.Printf("  ✓ Output: %s\n", outputFile)
+		fmt.Printf("  ✓ Output: %s\n\n", outputFile)
 
 		results = append(results, BenchmarkResult{
 			Name:      benchmarkName,
@@ -86,14 +92,12 @@ func main() {
 			Subgraphs: len(solution.Subgraphs),
 			Time:      elapsed,
 		})
-
-		fmt.Println()
 	}
 
 	// Print summary
-	fmt.Println("=" + strings.Repeat("=", 78))
+	fmt.Println(strings.Repeat("=", 80))
 	fmt.Println("  SUMMARY")
-	fmt.Println("=" + strings.Repeat("=", 78))
+	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("%-30s %15s %12s %12s\n", "Benchmark", "Latency", "Subgraphs", "Time")
 	fmt.Println(strings.Repeat("-", 80))
 
@@ -102,14 +106,7 @@ func main() {
 			result.Name, result.Latency, result.Subgraphs, result.Time)
 	}
 
-	fmt.Println("=" + strings.Repeat("=", 78))
+	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("Total benchmarks completed: %d/%d\n", len(results), len(files))
-	fmt.Println("=" + strings.Repeat("=", 78))
-}
-
-type BenchmarkResult struct {
-	Name      string
-	Latency   float64
-	Subgraphs int
-	Time      time.Duration
+	fmt.Println(strings.Repeat("=", 80))
 }

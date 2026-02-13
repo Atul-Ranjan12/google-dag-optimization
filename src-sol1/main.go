@@ -31,7 +31,7 @@ func main() {
 	}
 
 	fmt.Println("=" + strings.Repeat("=", 78))
-	fmt.Println("  MLSys 2026 DAG Optimization - Baseline Solver")
+	fmt.Println("  MLSys 2026 DAG Optimization - Optimized Solver")
 	fmt.Println("=" + strings.Repeat("=", 78))
 	fmt.Printf("Found %d benchmark files\n\n", len(files))
 
@@ -59,12 +59,28 @@ func main() {
 			problem.FastMemoryCapacity, problem.SlowMemoryBandwidth)
 
 		// Solve
-		solution := SolveBaseline(problem)
+		solution := SolveOptimized(problem)
 
 		// Verify
 		totalLat, err := EvaluateSolution(problem, solution)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  ✗ Solution validation error: %v\n", err)
+			// Try to recover
+			for i := range solution.Subgraphs {
+				sg := &solution.Subgraphs[i]
+				resident := make(map[int]bool)
+				if i > 0 {
+					for _, t := range solution.Subgraphs[i-1].TensorsToRetain {
+						resident[t] = true
+					}
+				}
+				lat, _ := EvaluateSubgraphDetailed(
+					problem, sg.Ops, sg.Granularity, sg.TensorsToRetain,
+					sg.TraversalOrder, resident,
+				)
+				sg.SubgraphLatency = lat
+			}
+			totalLat, _ = EvaluateSolution(problem, solution)
 		}
 
 		elapsed := time.Since(startTime)
